@@ -45,6 +45,7 @@ namespace MTG_WPF
         private bool liveOcr = false;
         private bool singleOCR = false;
         private bool isRatioSet = false;
+        private bool ratioUpdateRequired = true;
         private string softwareVersion;
         private string newLine = System.Environment.NewLine;
         private string imageTitleText;
@@ -53,13 +54,14 @@ namespace MTG_WPF
         private string imageArtistText;
         private string imageArtistTextLines;
         private string imageArtistTextLinesCount;
-
+        private BitmapImage defaultPhoto = new BitmapImage(new Uri(@"swamp.jpg",UriKind.Relative));
         private const int waitBetweenOCR = 3000;
 
 
         public MainWindow()
         {
             InitializeComponent();
+            cameraImage.Source = defaultPhoto;
         }
 
 
@@ -81,14 +83,9 @@ namespace MTG_WPF
             BitmapSource bitSrc;
             capture = new VideoCapture(CaptureDevice.DShow, 0);
             capture.Open(0);
-            //if (capture.FrameCount <= 0)
-            //{
-            //    ToggleCardStatusVisibility(true, "Camera not found");
-            //    buttonStartCamera_Click(this,EventArgs.Empty);
-            //    return;
-            //}
-
+            
             isCameraRunning = true;
+            ratioUpdateRequired = true;
 
             if (capture.IsOpened())
             {
@@ -148,6 +145,12 @@ namespace MTG_WPF
             }
 
             capture.Dispose();
+
+            this.Dispatcher.Invoke(() =>
+            {
+                cameraImage.Source = defaultPhoto;
+            }
+            );
             isCameraRunning = false;
         }
 
@@ -171,6 +174,30 @@ namespace MTG_WPF
             }
         }
 
+        private void Exit_Click(object sender, RoutedEventArgs e)
+        {
+            ExitMTGScanner();
+        }
+
+        private void fileFetch_Click(object sender, RoutedEventArgs e)
+        {
+            BitmapImage image;
+            OpenFileDialog fileDialog = new OpenFileDialog();
+            if ((bool)fileDialog.ShowDialog())
+            {
+                string fileName = fileDialog.FileName;
+                if (fileName != "" && fileName != null)
+                {
+                    image = new BitmapImage(new Uri(fileName));
+                    cameraImage.Source = image;
+                    imageToProcess = BitmapConverter.ToBitmap(image.ToMat());
+
+                }
+            }
+            Thread process = new Thread(new ThreadStart(ProcessImage) );
+            process.Start();
+        }
+        
         public BitmapImage ConvertBitmap(System.Drawing.Bitmap bitmap)
         {
             MemoryStream ms = new MemoryStream();
@@ -183,144 +210,12 @@ namespace MTG_WPF
 
             return image;
         }
-
-        private BitmapImage BitmapToImageSource(Bitmap bitmap)
-        {
-            using (MemoryStream memory = new MemoryStream())
-            {
-                bitmap.Save(memory, System.Drawing.Imaging.ImageFormat.Bmp);
-                memory.Position = 0;
-                BitmapImage bitmapimage = new BitmapImage();
-                bitmapimage.BeginInit();
-                bitmapimage.StreamSource = memory;
-                bitmapimage.CacheOption = BitmapCacheOption.OnLoad;
-                bitmapimage.EndInit();
-                
-                return bitmapimage;
-            }
-        }
-
-        public static Bitmap BitmapSourceToBitmap(BitmapSource bitmapSource)
-        {
-            var width = bitmapSource.PixelWidth;
-            var height = bitmapSource.PixelHeight;
-            var stride = width * ((bitmapSource.Format.BitsPerPixel + 7) / 8);
-            var memoryBlockPointer = Marshal.AllocHGlobal(height * stride);
-            bitmapSource.CopyPixels(new Int32Rect(0, 0, width, height), memoryBlockPointer, height * stride, stride);
-            var bitmap = new Bitmap(width, height, stride, System.Drawing.Imaging.PixelFormat.Format32bppPArgb, memoryBlockPointer);
-            return bitmap;
-
-            
-        }
-        /*
-        private void AssignTextToResultBox(string text)
-        {
-            if (this.Dispatcher.Invoke)
-            {
-                this.Invoke(new Action<string>(AssignTextToResultBox), new object[] { text });
-                return;
-            }
-            richTextBox1.Text = text;
-        }
-
-        private void ToggleSingleOCR()
-        {
-            if (InvokeRequired)
-            {
-                this.Invoke(new Action(ToggleSingleOCR));
-                return;
-            }
-
-            checkBoxSingleOCR.Checked = !checkBoxSingleOCR.Checked;
-            singleOCR = checkBoxSingleOCR.Checked;
-        }
-        */
+        
         #endregion
 
         // **********************************************************************************
         // ************************* UI FUNCTIONS *******************************************
         #region
-        // When the user clicks on the start/stop button, start or release the camera and setup flags
-        //private void buttonStartCamera_Click(object sender, EventArgs e)
-        //{
-        //    if (InvokeRequired)
-        //    {
-        //        this.Invoke(new Action<object, EventArgs>(buttonStartCamera_Click), new object[] { sender, e });
-        //        return;
-        //    }
-        //    if (buttonStartCamera.Text.Equals("Start"))
-        //    {
-        //        CaptureCamera(); //Start Camera in new Thread
-        //        buttonStartCamera.Text = "Stop";
-        //        isCameraRunning = true;
-        //    }
-        //    else
-        //    {
-        //        if (capture != null)
-        //        {
-        //            capture.Release();
-        //        }
-        //        buttonStartCamera.Text = "Start";
-        //        isCameraRunning = false;
-        //        isRatioSet = false;
-        //    }
-        //}
-
-        // When the user clicks on take snapshot, the image that is displayed in the pictureBox will be saved in your computer
-        private void buttonTakeSnap_Click(object sender, EventArgs e)
-        {
-            if (isCameraRunning)
-            {
-
-                // Take snapshot of the current image generated by OpenCV in the Picture Box
-                BitmapSource snapshot = (BitmapSource)cameraImage.Source;
-
-                // Save in some directory
-                using (var fileStream = new FileStream("Images\\snap.jpg", FileMode.Create))
-                {
-                    BitmapEncoder encoder = new JpegBitmapEncoder();
-                    encoder.Frames.Add(BitmapFrame.Create(snapshot));
-                    encoder.Save(fileStream);
-                }
-            }
-            else
-            {
-                Console.WriteLine("Cannot take picture if the camera isn't capturing image!");
-            }
-        }
-
-        //About Dialog - TBC
-        private void menuItem4_Click(object sender, EventArgs e)
-        {
-
-            String softwareName = "MTG Scanner" + newLine;
-            String version = "Version: " + softwareVersion + newLine;
-            String developer = "Developped by Piter©";
-
-            String about = softwareName + version + developer;
-
-
-            MessageBox.Show(about, "About");
-        }
-
-
-        private void menuItemExit_Click(object sender, EventArgs e)
-        {
-            Application.Current.Shutdown();
-        }
-
-        private void buttonExit_Click(object sender, EventArgs e)
-        {
-
-            if (camera != null && camera.IsAlive)
-            {
-                camera.Abort();
-            }
-            Application.Current.Shutdown();
-        }
-
-
-
         private async void buttonOCRFromFile_Click(object sender, EventArgs e)
         {
             string fileName;
@@ -338,15 +233,6 @@ namespace MTG_WPF
             }
         }
 
-        //private void checkBoxLiveOCR_CheckedChanged(object sender, EventArgs e)
-        //{
-        //    liveOcr = checkBoxLiveOCR.Checked;
-        //}
-
-        //private void checkBoxSingleOCR_CheckedChanged(object sender, EventArgs e)
-        //{
-        //    singleOCR = checkBoxSingleOCR.Checked;
-        //}
         #endregion
 
 
@@ -383,79 +269,70 @@ namespace MTG_WPF
             Console.WriteLine("Parsing image to Text - Found " + imageTitleTextLinesCount + " lines of text");
         }
 
-        //private void SearchForCard()
-        //{
+        private void SearchForCard()
+        {
+            Console.WriteLine("Searching for card...");
+            CardScryfall retrievedCard;
+            cardSearcher = new APICardSearcher();
 
-        //    if (InvokeRequired)
-        //    {
-        //        this.Invoke(new Action(SearchForCard));
-        //        return;
-        //    }
+            for (int i = 0; i < imageTitleTextLines.Count; i++)
+            {
+                Console.WriteLine("Search for Card: " + imageTitleTextLines[i]);
+                retrievedCard = cardSearcher.GetCard(imageTitleTextLines[i]);
 
-        //    Console.WriteLine("Searching for card...");
-        //    CardScryfall retrievedCard;
-        //    cardSearcher = new APICardSearcher();
+                if (retrievedCard == null)
+                {
+                    Console.WriteLine("No Card Found");
 
-        //    for (int i = 0; i < imageTitleTextLines.Count; i++)
-        //    {
-        //        Console.WriteLine("Search for Card: " + imageTitleTextLines[i]);
-        //        retrievedCard = cardSearcher.GetCard(imageTitleTextLines[i]);
+                }
+                else
+                {
+                    scannedCardList.Add(retrievedCard);
+                   
+                    Console.WriteLine("Items in CardList: " + scannedCardList.Count);
+                    Console.WriteLine(retrievedCard.cardName);
+                    SystemSounds.Beep.Play();
+                    break;
+                }
+            }
+        }
 
-        //        if (retrievedCard == null)
-        //        {
-        //            Console.WriteLine("No Card Found");
+        private async void ProcessImage()
+        {
+            DateTime startTime = DateTime.Now;
+            DateTime endTime;
+            ImageProcessor imgProc = new ImageProcessor(imageToProcess);
 
-        //        }
-        //        else
-        //        {
-        //            scannedCardList.Add(retrievedCard);
-        //            listBoxCards.Items.Add(retrievedCard.cardName);
+            bool isImageSuccess = await imgProc.ProcessImage();
+            endTime = DateTime.Now;
+            Console.WriteLine("Image Process Success | " + endTime.Subtract(startTime).TotalMilliseconds + "ms");
+            if (isImageSuccess)
+            {
+                if (imgProc.imageTitleTextLinesCount > 0)
+                {
+                    imageTitleText = imgProc.imageTitleText;
+                    imageTitleTextLines = imgProc.imageTitleTextLines;
+                    imageTitleTextLinesCount = imgProc.imageTitleTextLinesCount;
+                    SearchForCard();
+                }
 
-        //            Console.WriteLine("Items in CardList: " + scannedCardList.Count);
-        //            Console.WriteLine("Items in List: " + listBoxCards.Items.Count);
-        //            Console.WriteLine(retrievedCard.cardName);
-        //            SystemSounds.Beep.Play();
-        //            break;
-        //        }
-        //    }
-        //}
+                //ToggleCardStatusVisibility(isImageSuccess, "Image Process Success");
+            }
+            else
+            {
+                Console.WriteLine("Image Process Failed");
+                //ToggleCardStatusVisibility(isImageSuccess, "Image Process Failed");
+                return;
+            }
 
-        //private async void ProcessImage()
-        //{
-        //    DateTime startTime = DateTime.Now;
-        //    DateTime endTime;
-        //    ImageProcessor imgProc = new ImageProcessor(imageToProcess);
+            endTime = DateTime.Now;
 
-        //    bool isImageSuccess = await imgProc.ProcessImage();
-        //    endTime = DateTime.Now;
-        //    Console.WriteLine("Image Process Success | " + endTime.Subtract(startTime).TotalMilliseconds + "ms");
-        //    if (isImageSuccess)
-        //    {
-        //        if (imgProc.imageTitleTextLinesCount > 0)
-        //        {
-        //            imageTitleText = imgProc.imageTitleText;
-        //            imageTitleTextLines = imgProc.imageTitleTextLines;
-        //            imageTitleTextLinesCount = imgProc.imageTitleTextLinesCount;
-        //            SearchForCard();
-        //        }
+            //ToggleElapsedVisibility(true, "Elapsed in " + endTime.Subtract(startTime).TotalMilliseconds + "ms");
+            ResetSearchObjects();
+            await StopCameraReading(1000);
+            isOCRRunning = false;
 
-        //        ToggleCardStatusVisibility(isImageSuccess, "Image Process Success");
-        //    }
-        //    else
-        //    {
-        //        Console.WriteLine("Image Process Failed");
-        //        ToggleCardStatusVisibility(isImageSuccess, "Image Process Failed");
-        //        return;
-        //    }
-
-        //    endTime = DateTime.Now;
-
-        //    ToggleElapsedVisibility(true, "Elapsed in " + endTime.Subtract(startTime).TotalMilliseconds + "ms");
-        //    ResetSearchObjects();
-        //    await StopCameraReading(1000);
-        //    isOCRRunning = false;
-
-        //}
+        }
 
         private async Task StopCameraReading(int _milliseconds)
         {
@@ -541,27 +418,21 @@ namespace MTG_WPF
             }
         }
 
-        private void button1_Click(object sender, EventArgs e)
+        private void cameraImage_SourceUpdated(object sender, DataTransferEventArgs e)
         {
-            Bitmap image;
-            OpenFileDialog fileDialog = new OpenFileDialog();
-            if((bool)fileDialog.ShowDialog())
+            if(ratioUpdateRequired)
             {
-                string fileName = fileDialog.FileName;
-                if (fileName != "" && fileName != null)
+                float imgRatio = (float)cameraImage.Source.Height / (float)cameraImage.Width;
+                float myRatio = (float)cameraImage.Height / (float)cameraImage.Width;
+
+                if(imgRatio != myRatio)
                 {
-                    image = FixOrientation(new Bitmap(fileName));
-                    //pictureBox1.Image = image;
-                    isRatioSet = false;
-                    //GetPictureRatio(image.Height, image.Width);
-                    imageToProcess = (Bitmap)image.Clone();
+                    cameraImage.Width = cameraImage.Height * imgRatio;
                 }
             }
-            //Thread process = new Thread(new ThreadStart(ProcessImage) );
-            //process.Start();
+
+            ratioUpdateRequired = false;
+
         }
-
-        
-
     }
 }
